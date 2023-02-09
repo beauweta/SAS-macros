@@ -1,92 +1,80 @@
 /*
 Original from: Mike Zdeb, Maps Made Easy with SAS
-
 */
 
-* MAP - NAME OF MAP DATA SET
-* TYPE - VARIABLE THAT IDENTIFIES GEOGRAPHIC AREAS IN MAP (E.G. COUNTY)
-;
-
 %macro centroid(
-	map,       /* name of map data set            */
-	type,      /* name of region ID variable      */ 
-	copy=,     /* map variables to copy to output */
-	xc=xc,     /* name for X centroid variable    */
-	yc=yc,     /* name for Y centroid variable    */ 
-	minmax=0,  /* include XMIN, XMAX, YMIN, YMAX? */
-	out=centers
-	);
+   map            /* Name of map data set, must have X and Y variables */
+  ,type           /* Name of map region/subdivision variable, optional */ 
+  ,copy  =        /* Name of map variables to simply copy to output    */
+  ,xc    =XC      /* Name of output X centroid variable                */
+  ,yc    =YC      /* Name of output Y centroid variable                */ 
+  ,minmax=0       /* Boolean. Include XMIN, XMAX, YMIN, YMAX in output */
+  ,out   =CENTERS /* Name of output data set                           */
+  );
 
-%let extra=;
 *-- Create two data sets - number of points per area and points;
-data
-   _map_(drop=npoints)
-   _points_(keep=x y npoints &copy rename=(x=xlast y=ylast));
-   set &map;
-   %if %length(&type) %then %do; 
-	   by &type;
-    %end;
-   where x ne .;
-   output _map_;
-   npoints+1;
+data __CENTROID_MAP(drop=NPOINTS)
+     __CENTROID_POINTS(keep=X Y NPOINTS &copy. rename=(X=XLAST Y=YLAST));
+  set &map. end=LASTOBS;
+  %if %length(&type.) %then by &type.;;
+  where X ne .;
+  output __CENTROID_MAP;
+  NPOINTS+1;
 
-   if last.&type then do;
-      output _points_;
-      npoints=0;
-   end;
+  if %sysfunc(ifc( %length(&type.), last.&type., LASTOBS)) then do;
+    output __CENTROID_POINTS;
+    NPOINTS=0;
+  end;
 run;
 
 *-- Calculate centroids;
-data
-   &out(keep=&type x y &copy rename=(x=&xc y=&yc));
-   retain savptr 1 xold yold 0;
-   set _points_;
+data &out(keep=&type. X Y &copy. rename=(X=&xc. Y=&yc.));
+  retain SAVPTR 1 XOLD YOLD 0;
+  set __CENTROID_POINTS;
 
-   xcg=0; ycg=0;
-   aresum=0;
-   firstpnt=1;
-   endptr=savptr + npoints - 1;
-   do ptrm=savptr to endptr;
-      set _map_ point=ptrm nobs=nobsm;
-      if firstpnt then do;
-         xold=x; yold=y;
-         savptr=ptrm + npoints;
-         firstpnt=0;
-      end;
-      aretri=((xlast-x)*(yold-ylast)) + ((xold-xlast)*(y-ylast));
-      xcg + (aretri*(x+xold));
-      ycg + (aretri*(y+yold));
-      aresum+aretri;
-      xold=x; yold=y;
-   end;
-   areinv=1.0/aresum;
-   x=(((xcg*areinv)+xlast) * (1/3));
-   y=(((ycg*areinv)+ylast) * (1/3));
-   output;
-   label &xc = 'X centroid'
-    &yc='Y centroid';
+  XCG     =0; 
+  YCG     =0;
+  ARESUM  =0;
+  FIRSTPNT=1;
+  ENDPTR  =SAVPTR + NPOINTS - 1;
+  do PTRM=SAVPTR to ENDPTR;
+    set __CENTROID_MAP point=PTRM nobs=NOBSM;
+    if FIRSTPNT then do;
+      XOLD=X; YOLD=Y;
+      SAVPTR=PTRM + NPOINTS;
+      FIRSTPNT=0;
+    end;
+    ARETRI=(XLAST-X)*(YOLD-YLAST) + (XOLD-XLAST)*(Y-YLAST);
+    XCG + (ARETRI*(X+XOLD));
+    YCG + (ARETRI*(Y+YOLD));
+    ARESUM+ARETRI;
+    XOLD=X; YOLD=Y;
+  end;
+  AREINV=1 / ARESUM;
+  X=( XCG*AREINV +XLAST) * 1/3;
+  Y=( YCG*AREINV +YLAST) * 1/3;
+  output;
+  label X='X centroid'
+        Y='Y centroid';
 run;
 
-%if &minmax %then %do;
-	proc summary data=&map nway;
-	  %if %length(&type) %then %do; 
-		  class &type;
-       %end;
-		var x y;
-		output out=_minmax_ min=xmin ymin max=xmax ymax;
-	data &out;
-		merge &out _minmax_(drop=_type_ _freq_);
-	  %if %length(&type) %then %do; 
-		  by &type;
-       %end;
-	%let extra=_minmax_;
-	%end;
-
+%if &minmax. %then %do;
+  proc summary data=&map. nway;
+    %if %length(&type.) %then class &type.;;
+    var X Y;
+    output out=_CENTROID_MINMAX min=XMIN YMIN max=XMAX YMAX;
+  run;  
+  data &out.;
+    merge &out __CENTROID_MINMAX(drop=_TYPE_ _FREQ_);
+    %if %length(&type) %then by &type.;;
+  run;  
+%end;
 
 proc datasets nolist nowarn;
-	delete _map_ _points_ &extra;
-	run; quit;
+  delete __CENTROID:;
+quit;
 %mend;
+
 /*
 %centroid(maps.states,state);
 */
